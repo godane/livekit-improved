@@ -59,9 +59,6 @@ debug_shell
 
 # Copy data to RAM if requested by user
 DATA="$(copy_to_ram "$DATA" "$CHANGES")"
- 
-# Setup an empty union
-init_union "$CHANGES" "$UNION"
 
 # 4th debug shell interval
 debug_shell
