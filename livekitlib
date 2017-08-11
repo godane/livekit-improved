@@ -698,36 +698,39 @@ prepare_overlay()
 {
     debug_log "prepare_overlay" "$*"
 
-    local BUN
+    local BUN ALL_BUNDS LOWERDIR UPPERDIR WORKDIR
 
-    echo_livekit >&2
-    echo "Preparing OverlayFS union..." >&2
-
+    echo_livekit_msg "Preparing OverlayFS union..." >&2
+    echo >>/var/log/livekit-log
     # Just tell me why! Why be compact?!?
     ( ls -1 "$1" | sort -n ; cd "$1" ; find modules/ 2>/dev/null | \
     sortmod | filter_load) | grep '[.]'$BEXT'$' |\
     filter_noload | \
     while read BUNDLE; do
-        echo_livekit_msg "Mounting $BUNDLE" >&2
-
         BUN="$(basename "$BUNDLE")"
+        echo_livekit_msg "Mounting $BUN to /memory/bundles..." >&2
         mkdir -p "$2/$BUN"
 
         # It now depends on your kernel!
         mount -o loop -t squashfs "$1/$BUNDLE" "$2/$BUN"
     done
-    LOWERDIR="$(get_lowerdirs "$2" "$BEXT")"
+
+    ALL_BUNDS="$(get_lowerdirs "$2" "$BEXT")"
+    LOWERDIR="/memory/lowerdir"
     UPPERDIR="$3"
     WORKDIR="${UPPERDIR}/.workdir"
 
     # Make the workdir (cuz it's non-existant, yet...)
     mkdir "$WORKDIR" >/dev/null 2>&1
 
-    # Oh, s#117!
-    echo >>/var/log/livekit-log
+    # I think this is a work-around
+    # Separating 2 commands to avoid overflow (aka avoid triggering "Argument list to long" error)
+    mkdir "$LOWERDIR" >/dev/null 2>&1
+    mount -t overlay -o lowerdir="$ALL_BUNDS" overlay "$LOWERDIR" >>/var/log/livekit-log 2>&1 && \
     mount -t overlay -o lowerdir="$LOWERDIR",upperdir="$UPPERDIR",workdir="$WORKDIR" \
-    overlay "$4" >>/var/log/livekit-log
+    overlay "$4" >>/var/log/livekit-log 2>&1
 
+    # Check if we got any errors...
     if [ $? -ne 0 ]; then
     	fatal "Failed to prepare OverlayFS union!"
     else
