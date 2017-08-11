@@ -77,3 +77,5 @@ When you're ready, run the ./build script to build your Live Kit Distro.
 NOTE:
 WHEN YOU DOWNLOAD THIS KIT, MAKE SURE THAT ./build AND ./livekitlib IS
 EXECUTABLE!
+
+This branch is for AUFS-compatible systems.
