@@ -35,7 +35,7 @@ debug_shell
 
 # Initialise important kernel modules
 init_devs
-init_aufs
+modprobe_overlay
 init_zram
 
 # Then, modprobe everything
@@ -67,7 +67,7 @@ init_union "$CHANGES" "$UNION"
 debug_shell
 
 # Append bundles to union
-union_append_bundles "$DATA" "$BUNDLES" "$UNION"
+prepare_overlay "$DATA" "$BUNDLES" "$CHANGES" "$UNION"
 
 # 5th debug shell interval
 debug_shell
