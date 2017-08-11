@@ -32,7 +32,7 @@ get_lowerdirs()
 	BUND_EXT="$2"
 	MNT_OPT=""
 
-	MNT_OPT="$(find "$BUND_DIRS" -depth -type d | head -n -1 | grep ".$BUND_EXT" | \
+	MNT_OPT="$(find "$BUND_DIRS" -depth -type d | sed '$ d' | grep ".$BUND_EXT" | \
 	while read BUND; do echo -n "${BUND}:"; done)"
 	MNT_OPT="${MNT_OPT%?}"
 	echo "$MNT_OPT"
