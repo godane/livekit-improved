@@ -94,7 +94,7 @@ echo_bold()
 # echo livekit tag
 echo_livekit()
 {
-    echo "<${CYAN}"'llkim'"${NC}> "
+    echo -n "<${CYAN}"'llkim'"${NC}> "
 }
 
 echo_livekit_msg()
@@ -215,8 +215,7 @@ cmdline_value()
 transfer_initramfs()
 {
    if [ ! -r /lib/esc_initramfs.sgn ]; then
-      echo_livekit >&2
-      echo "Switching root from initramfs to tmpfs..." >&2
+      echo_livekit_msg "Switching root from initramfs to tmpfs..." >&2
       SWITCH=/m # one letter directory
       mkdir -p $SWITCH
       mount -t tmpfs -o size="100%" tmpfs "$SWITCH"
@@ -723,6 +722,9 @@ prepare_overlay()
     # Make the workdir (cuz it's non-existant, yet...)
     mkdir "$WORKDIR" >/dev/null 2>&1
 
+    # Make the union directory (this might actually be an alarming bug)
+    mkdir "$4" >/dev/null 2>&1
+    
     # I think this is a work-around
     # Separating 2 commands to avoid overflow (aka avoid triggering "Argument list to long" error)
     mkdir "$LOWERDIR" >/dev/null 2>&1
