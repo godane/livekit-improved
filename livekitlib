@@ -69,7 +69,7 @@ dbg_shell_start()
 debug_log()
 {
     if [ "$DEBUG_IS_ENABLED" ]; then
-        echo "[${GREEN}"' debug '"${NC}]: $@" >&2
+        echo "<${GREEN}"'debug'"${NC}>: $@" >&2
         log "debug_log: $*"
     fi
 }
@@ -197,6 +197,19 @@ mkbund()
 }
 
 # Now, for the Live Kit system-related stuff
+
+# Make the Live Kit init panic (wait forever!)
+# $* = text to output
+livekit_panic() {
+    log "livekit_panic: $*"
+    echo_sign "PANIC TRIGGERED" >&2
+    echo "<${RED}"'panic'"${NC}> $*" >&2
+    echo_bold "A panic is triggered by one (or more) functions in" >&2
+    echo_bold "this initial script!" >&2
+    echo_bold "Automatic shutdown in 15 seconds..." >&2
+    sleep 15 >&2
+    poweroff -f
+}
 
 # get value of kernel cmdline parameter $1
 # $1 = parameter to search for
@@ -697,10 +710,12 @@ prepare_overlay()
 {
     debug_log "prepare_overlay" "$*"
 
-    local BUN ALL_BUNDS LOWERDIR UPPERDIR WORKDIR
+    local BUN ALL_BUNDS LOWERDIR CHANGEDIR UPPERDIR WORKDIR
 
     echo_livekit_msg "Preparing OverlayFS union..." >&2
+
     echo >>/var/log/livekit-log
+
     # Just tell me why! Why be compact?!?
     ( ls -1 "$1" | sort -n ; cd "$1" ; find modules/ 2>/dev/null | \
     sortmod | filter_load) | grep '[.]'$BEXT'$' |\
@@ -714,12 +729,15 @@ prepare_overlay()
         mount -o loop -t squashfs "$1/$BUNDLE" "$2/$BUN"
     done
 
+    # Time to mount overlayfs union
     ALL_BUNDS="$(get_lowerdirs "$2" "$BEXT")"
     LOWERDIR="/memory/lowerdir"
-    UPPERDIR="$3"
-    WORKDIR="${UPPERDIR}/.workdir"
+    CHANGEDIR="$3"
+    UPPERDIR="${CHANGES}/.rootfs"
+    WORKDIR="${CHANGES}/.work"
 
-    # Make the workdir (cuz it's non-existant, yet...)
+    # Make the both the upperdir and workdir (cuz it's non-existant, yet...)
+    mkdir "$UPPERDIR" >/dev/null 2>&1
     mkdir "$WORKDIR" >/dev/null 2>&1
 
     # Make the union directory (this might actually be an alarming bug)
@@ -728,16 +746,19 @@ prepare_overlay()
     # I think this is a work-around
     # Separating 2 commands to avoid overflow (aka avoid triggering "Argument list to long" error)
     mkdir "$LOWERDIR" >/dev/null 2>&1
-    mount -t overlay -o lowerdir="$ALL_BUNDS" overlay "$LOWERDIR" >>/var/log/livekit-log 2>&1 && \
+    mount -t overlay -o lowerdir="$ALL_BUNDS" overlay "$LOWERDIR" >>/var/log/livekit-log 2>&1
+    if [ $? -ne 0 ]; then
+        livekit_panic "Failed to mount lower directory of main OverlayFS union!"
+    fi
+
     mount -t overlay -o lowerdir="$LOWERDIR",upperdir="$UPPERDIR",workdir="$WORKDIR" \
     overlay "$4" >>/var/log/livekit-log 2>&1
 
     # Check if we got any errors...
     if [ $? -ne 0 ]; then
-    	fatal "Failed to prepare OverlayFS union!"
-    else
-    	echo_livekit_msg "And we have lift-off!" >&2
+    	fatal "Failed to mount main OverlayFS union!"
     fi
+
 }
 
 # Create empty fstab properly
@@ -749,11 +770,15 @@ fstab_create()
 
     local FSTAB
     FSTAB="$1/etc/fstab"
-    echo overlay / overlay defaults 0 0 > $FSTAB
-    echo proc /proc proc defaults 0 0 >> $FSTAB
-    echo sysfs /sys sysfs defaults 0 0 >> $FSTAB
-    echo devpts /dev/pts devpts gid=5,mode=620 0 0 >> $FSTAB
-    echo tmpfs /dev/shm tmpfs defaults 0 0 >> $FSTAB
+    echo_livekit_msg "Generating base /etc/fstab..." >&2
+
+    { \
+        echo 'overlay / overlay defaults 0 0'; \
+        echo 'proc /proc proc defaults 0 0'; \
+        echo 'sysfs /sys sysfs defaults 0 0'; \
+        echo 'devpts /dev/pts devpts gid=5,mode=620 0 0'; \
+        echo 'tmpfs /dev/shm tmpfs defaults 0 0'; \
+    } > "$FSTAB"
 }
 
 
@@ -763,34 +788,44 @@ fstab_create()
 change_root()
 {
     debug_log "change_root" "$*"
-    echo_livekit_msg "Changing root..." >&2
+    echo_livekit_msg "Preparing for changing root..." >&2
     umount /proc
     umount /sys
 
     cd "$1"
 
-    # make sure important device files and directories are in union
-    mkdir -p boot dev proc sys tmp mnt run
+    # Populate union
+    echo_livekit_msg "Populating union..." >&2
+    mkdir -p boot dev proc sys tmp mnt run 2>/dev/null
     chmod 1777 tmp
+
+    # Populate /dev
+    echo_livekit_msg "Populating /dev..." >&2
     if [ ! -e dev/console ]; then mknod dev/console c 5 1; fi
     if [ ! -e dev/tty ]; then mknod dev/tty c 5 0; fi
     if [ ! -e dev/tty0 ]; then mknod dev/tty0 c 4 0; fi
     if [ ! -e dev/tty1 ]; then mknod dev/tty1 c 4 1; fi
     if [ ! -e dev/null ]; then mknod dev/null c 1 3; fi
 
-    # find chroot and init
+    # Find 'chroot' and 'init'
+    echo_livekit_msg "Finding important commands... (chroot)" >&2
     if [ -x bin/chroot -o -L bin/chroot ]; then  CHROOT=bin/chroot; fi
     if [ -x sbin/chroot -o -L sbin/chroot ]; then  CHROOT=sbin/chroot; fi
     if [ -x usr/bin/chroot -o -L usr/bin/chroot ]; then  CHROOT=usr/bin/chroot; fi
     if [ -x usr/sbin/chroot -o -L usr/sbin/chroot ]; then CHROOT=usr/sbin/chroot; fi
-    if [ "$CHROOT" = "" ]; then fatal "chroot: Executable not found!"; fi
+    if [ -z "$CHROOT" ]; then livekit_panic "chroot: Cannot find executable!"; fi
 
+    echo_livekit_msg "Finding important commands... (init)" >&2
     if [ -x bin/init -o -L bin/init ]; then INIT=bin/init; fi
     if [ -x sbin/init -o -L sbin/init  ]; then INIT=sbin/init; fi
-    if [ "$INIT" = "" ]; then fatal "init: Executable not found!"; fi
+    if [ "$INIT" = "" ]; then livekit_panic "init: Cannot find executable!"; fi
 
     mkdir -p mnt/live
     mount -n -o remount,ro overlay .
     pivot_root . mnt/live
     exec $CHROOT . $INIT < dev/console > dev/console 2>&1
+
+    if [ $? -ne 0 ]; then
+        livekit_panic "Failed to change root!"
+    fi
 }
