@@ -35,7 +35,7 @@ debug_shell
 
 # Initialise important kernel modules
 init_devs
-init_aufs
+modprobe_overlay
 init_zram
 
 # Then, modprobe everything
@@ -59,15 +59,107 @@ debug_shell
 
 # Copy data to RAM if requested by user
 DATA="$(copy_to_ram "$DATA" "$CHANGES")"
- 
-# Setup an empty union
-init_union "$CHANGES" "$UNION"
 
 # 4th debug shell interval
 debug_shell
 
 # Append bundles to union
-union_append_bundles "$DATA" "$BUNDLES" "$UNION"
+prepare_overlay "$DATA" "$BUNDLES" "$CHANGES" "$UNION"
+
+if [ ! -z "$hostname" ]; then
+# Configure hostname and network:
+echo "${hostname}.example.net" > ${UNION}/etc/HOSTNAME
+if [ -f ${UNION}/etc/NetworkManager/NetworkManager.conf ]; then
+  sed -i ${UNION}/etc/NetworkManager/NetworkManager.conf -e "s/^hostname=.*/hostname=${hostname}/"
+fi
+echo "127.0.0.1 localhost" > ${UNION}/etc/hosts
+echo "127.0.0.1 ${hostname}.example.net ${hostname}" >> ${UNION}/etc/hosts
+fi
+
+#setup user and password
+if [ ! -z "$user" ]; then
+	if [ ! -d $UNION/home/$user ]; then
+		[ -d $UNION/home ] || mkdir -p $UNION/home
+		echo "Setting up $user"
+		#chroot $UNION /usr/sbin/useradd -m -g users -s /bin/bash $user
+		#chroot $UNION /usr/sbin/usermod -G wheel,audio,cdrom,floppy,plugdev,video,power,netdev,lp,scanner,kmem $user
+		chroot $UNION useradd -m -g users -s /bin/bash $user
+		chroot $UNION usermod -G wheel,audio,cdrom,floppy,plugdev,video,power,netdev,lp,scanner,kmem $user
+		echo "Setting up $user password"
+		echo "$user:$user" > $UNION/tmp/chpasswd.tmp
+		#chroot $UNION /usr/sbin/chpasswd < $UNION/tmp/chpasswd.tmp
+		chroot $UNION chpasswd < $UNION/tmp/chpasswd.tmp
+
+		rm -f $UNION/tmp/chpasswd.tmp
+		# Configure suauth:
+		echo "Configure suauth"
+		echo "root:${user}:OWNPASS" > ${UNION}/etc/suauth
+		echo "root:ALL EXCEPT GROUP wheel:DENY" >> ${UNION}/etc/suauth
+		chmod 600 ${UNION}/etc/suauth
+
+		# Configure sudoers:
+		echo "Configure sudoers"
+		chmod 640 ${UNION}/etc/sudoers
+		sed -i ${UNION}/etc/sudoers -e 's/# *\(%wheel\sALL=(ALL)\sALL\)/\1/'
+		chmod 440 ${UNION}/etc/sudoers
+
+	else
+		echo "/home/$user folder exists."
+	fi
+fi
+
+#timezone
+if [ ! -z "$timezone" ]; then
+	if [ -f $UNION/usr/share/zoneinfo/$timezone ]; then
+		echo "Timezone $timezone"
+		ln -sf $UNION/usr/share/zoneinfo/$timezone $UNION/etc/localtime
+	fi
+fi
+
+if [ ! -z "$runlevel" ]; then
+	echo "init $runlevel"
+	sed -i "s|^id:.*|id:${runlevel}:initdefault:|g" $UNION/etc/inittab
+fi
+
+if [ ! -z "$desktop" ]; then
+	if [ -f $UNION/etc/X11/xinit/xinitrc.$desktop ]; then
+		ln -sf xinitrc.$desktop  $UNION/etc/X11/xinit/xinitrc
+	fi
+fi
+
+if [ ! -z "$fastboot" ]; then
+	# needed so filesystem check will not happen on overlayfs
+	echo "fastboot mode"
+	touch $UNION/etc/fastboot
+fi
+
+if [ ! -z "$xconfig" ]; then
+	echo "xorg configure"
+	$UNION/usr/bin/Xorg -configure
+	if [ -f /root/xorg.conf.new ]; then
+		cp /root/xorg.conf.new $UNION/etc/X11/xorg.conf
+	fi
+	if [ -f $UNION/root/xorg.conf.new ]; then
+		cp $UNION/root/xorg.conf.new $UNION/etc/X11/xorg.conf
+	fi
+fi
+
+if [ ! -z "$nga" ]; then
+
+	[ -d $UNION/etc/X11/xorg.conf.d ] || mkdir -p $UNION/etc/X11/xorg.conf.d
+    cat <<EOT > $UNION/etc/X11/xorg.conf.d/20-noglamor.conf
+Section "Device"
+  Identifier "modesetting"
+  Driver "modesetting"
+  Option "AccelMethod" "none"
+EndSection
+EOT
+fi
+
+if [ ! -z "$lang" ]; then
+	echo "export LANG=${lang}" > $UNION/etc/profile.d/lang.sh
+	echo "export LC_COLLATE=${lang}" >> $UNION/etc/profile.d/lang.sh
+fi
 
 # 5th debug shell interval
 debug_shell
