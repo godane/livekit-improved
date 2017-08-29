@@ -231,7 +231,8 @@ transfer_initramfs()
 init_proc_sysfs()
 {
    debug_log "init_proc_sysfs" "$*"
-   mkdir -p /proc /sys /etc "$MEMORY"
+   mkdir -p /proc /sys /etc
+   mkdir -p "$UNION" "$CHANGES" "$BUNDLES" "$DATAMNT"
    mount -n -t proc proc /proc
    echo "0" >/proc/sys/kernel/printk
    mount -n -t sysfs sysfs /sys
@@ -751,7 +752,11 @@ prepare_overlay()
     # Make the union directory (this might actually be an alarming bug)
     mkdir "$4" >/dev/null 2>&1
     
-    if [ "$NOCHANGE" == "" ]; then
+    if grep -vq 'from=' /proc/cmdline; then
+        NOFROM="yes"
+    fi
+    
+    if [ "$NOCHANGE" == "" -a "$NOFROM" == "" ]; then
         WORKDIR=$DATA/work
         UPPERDIR=$DATA/changes
     fi
