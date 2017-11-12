@@ -16,13 +16,6 @@ echo_sign "INIT START"
 # Run switch_root: initramfs -> tmpfs
 transfer_initramfs
 
-# Directory variables pointing to /memory
-MEMORY=/memory
-CHANGES=$MEMORY/changes
-UNION=$MEMORY/union
-DATAMNT=$MEMORY/data
-BUNDLES=$MEMORY/bundles
-
 # Initliaise /proc, /sys and such
 init_proc_sysfs
 
@@ -65,6 +58,9 @@ debug_shell
 
 # Append bundles to union
 prepare_overlay "$DATA" "$BUNDLES" "$CHANGES" "$UNION"
+
+# 5th debug shell interval
+debug_shell
 
 if [ ! -z "$hostname" ]; then
 # Configure hostname and network:
@@ -161,7 +157,7 @@ if [ ! -z "$lang" ]; then
 	echo "export LC_COLLATE=${lang}" >> $UNION/etc/profile.d/lang.sh
 fi
 
-# 5th debug shell interval
+# 6th debug shell interval
 debug_shell
 
 # Copy contents of 'rootcopy/'
@@ -170,7 +166,7 @@ copy_rootcopy_content "$DATA" "$UNION"
 # Generate a basic 'fstab' with the core filesystems
 fstab_create "$UNION"
 
-# 6th and final debug shell interval
+# 7th and final debug shell interval
 debug_shell
 
 # Declare the end of first 'init' state
